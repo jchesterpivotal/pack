@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"testing"
 )
 
@@ -21,16 +22,34 @@ type DockerDaemon struct {
 }
 
 func NewDockerDaemon() *DockerDaemon {
+	var transport *http.Transport
+	var scheme string
+
+	dockerHost, found := os.LookupEnv("DOCKER_HOST")
+	if found {
+		scheme = "https"
+		transport = &http.Transport{
+			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+				return net.Dial("tcp", dockerHost)
+			},
+		}
+
+	} else {
+		dockerHost = "unix"
+		scheme = "http"
+		transport = &http.Transport{
+			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+				return net.Dial("unix", "/var/run/docker.sock")
+			},
+		}
+	}
+
 	return &DockerDaemon{
 		client: &http.Client{
-			Transport: &http.Transport{
-				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-					return net.Dial("unix", "/var/run/docker.sock")
-				},
-			},
+			Transport: transport,
 		},
 		url: func(path string, query map[string]string) string {
-			u := url.URL{Scheme: "http", Host: "unix", Path: path}
+			u := url.URL{Scheme: scheme, Host: dockerHost, Path: path}
 			q := u.Query()
 			for k, v := range query {
 				q.Set(k, v)
